@@ -67,10 +67,10 @@ class KVWorker : public SimpleApp {
    *
    * \param app_id the app id, should match with \ref KVServer's id
    */
-  explicit KVWorker(int app_id) : SimpleApp() {
+  explicit KVWorker(int app_id) : SimpleApp(app_id) {
     using namespace std::placeholders;
     slicer_ = std::bind(&KVWorker<Val>::DefaultSlicer, this, _1, _2, _3);
-    obj_ = new Customer(app_id, std::bind(&KVWorker<Val>::Process, this, _1));
+    obj_ = new Customer(std::bind(&KVWorker<Val>::Process, this, _1));
   }
 
   /** \brief deconstructor */
@@ -290,9 +290,9 @@ class KVServer : public SimpleApp {
    * \brief constructor
    * \param app_id the app id, should match with \ref KVWorker's id
    */
-  explicit KVServer(int app_id) : SimpleApp() {
+  explicit KVServer(int app_id) : SimpleApp(app_id) {
     using namespace std::placeholders;
-    obj_ = new Customer(app_id, std::bind(&KVServer<Val>::Process, this, _1));
+    obj_ = new Customer(std::bind(&KVServer<Val>::Process, this, _1));
   }
 
   /** \brief deconstructor */

@@ -35,7 +35,7 @@ void Van::ProcessTerminateCommand() {
 }
 
 void Van::ProcessAddNodeCommandAtScheduler(
-        Message* msg, Meta* nodes, Meta* recovery_nodes) {
+        Meta* nodes, Meta* recovery_nodes) {
   recovery_nodes -> control.cmd = Control::ADD_NODE;
   time_t t = time(NULL);
   size_t num_nodes = Postoffice::Get()->num_servers() + Postoffice::Get()->num_workers();
@@ -138,6 +138,7 @@ void Van::UpdateLocalID(Message* msg, std::unordered_set<int>* deadnodes_set,
 #else
       setenv("DMLC_RANK", rank.c_str(), true);
 #endif
+      Postoffice::Get() -> GetCustomer(node.id)->UpdateGlobalId(std::stoi(rank));
     }
   }
 }
@@ -204,7 +205,7 @@ void Van::ProcessAddNodeCommand(Message* msg, Meta* nodes, Meta* recovery_nodes)
   UpdateLocalID(msg, &dead_set, nodes, recovery_nodes);
 
   if (is_scheduler_) {
-    ProcessAddNodeCommandAtScheduler(msg, nodes, recovery_nodes);
+    ProcessAddNodeCommandAtScheduler(nodes, recovery_nodes);
   } else {
     for (const auto& node : ctrl.node) {
       Connect(node);

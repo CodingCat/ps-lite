@@ -171,7 +171,9 @@ class Postoffice {
   ~Postoffice() { delete van_; }
   Van* van_;
   mutable std::mutex mu_;
-  std::unordered_map<int, Customer*> customers_;
+  // a map from customer's local id to customer instance
+  std::unordered_map<int, Customer*> customer_by_local_id;
+  std::unordered_map<int, Customer*> customer_by_global_id;
   std::unordered_map<int, std::vector<int>> node_ids_;
   std::vector<Range> server_key_ranges_;
   bool is_worker_, is_server_, is_scheduler_;

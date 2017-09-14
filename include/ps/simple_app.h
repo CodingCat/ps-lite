@@ -31,12 +31,17 @@ class SimpleApp {
  public:
   /**
    * \brief constructor
-   * @param app_id the app id, should match with the remote node app with which this app
-   * is communicated
    */
-  explicit SimpleApp(int app_id);
+  explicit inline SimpleApp(int id) : obj_(nullptr) {
+    using namespace std::placeholders;
+    obj_ = new Customer(std::bind(&SimpleApp::Process, this, _1));
+    request_handle_ = [](const SimpleData& recved, SimpleApp* app) {
+        app->Response(recved);
+    };
+    response_handle_ = [](const SimpleData& recved, SimpleApp* app) { };
+  }
 
-  /** \brief deconstructor */
+    /** \brief deconstructor */
   virtual ~SimpleApp() { delete obj_; obj_ = nullptr; }
 
   /**
@@ -97,14 +102,6 @@ class SimpleApp {
   virtual inline Customer* get_customer() { return obj_; }
 
  protected:
-  /** \brief empty construct */
-  inline SimpleApp() : obj_(nullptr) {
-    request_handle_ = [](const SimpleData& recved, SimpleApp* app) {
-      app->Response(recved);
-    };
-    response_handle_ = [](const SimpleData& recved, SimpleApp* app) { };
-  }
-
   /** \brief process a received message */
   virtual inline void Process(const Message& msg);
 
@@ -119,11 +116,6 @@ class SimpleApp {
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-
-inline SimpleApp::SimpleApp(int app_id) : SimpleApp() {
-  using namespace std::placeholders;
-  obj_ = new Customer(app_id, std::bind(&SimpleApp::Process, this, _1));
-}
 
 inline int SimpleApp::Request(int req_head, const std::string& req_body, int recv_id) {
   // setup message

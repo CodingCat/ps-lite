@@ -47,6 +47,8 @@ class Customer {
    */
   int id() { return id_; }
 
+  void UpdateGlobalId(int globalRank) { global_id_ = globalRank; }
+
   /**
    * \brief get a timestamp for a new request. threadsafe
    * \param recver the receive node id of this request
@@ -85,6 +87,7 @@ class Customer {
   void Receiving();
 
   int id_;
+  int global_id_;
 
   RecvHandle recv_handle_;
   ThreadsafeQueue<Message> recv_queue_;
