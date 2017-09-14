@@ -62,8 +62,7 @@ void Van::ProcessAddNodeCommandAtScheduler(
     nodes -> control.cmd = Control::ADD_NODE;
     Message back;
     back.meta = *nodes;
-    for (int r : Postoffice::Get()->GetNodeIDs(
-            kWorkerGroup + kServerGroup)) {
+    for (int r : Postoffice::Get()->GetNodeIDs(kWorkerGroup + kServerGroup)) {
       back.meta.recver = r;
       back.meta.timestamp = timestamp_++;
       Send(back);
@@ -132,6 +131,7 @@ void Van::UpdateLocalID(Message* msg, std::unordered_set<int>* deadnodes_set,
     const auto& node = ctrl.node[i];
     if (my_node_.hostname == node.hostname && my_node_.port == node.port) {
       my_node_ = node;
+      my_node_.id = node.id;
       std::string rank = std::to_string(Postoffice::IDtoRank(node.id));
 #ifdef _MSC_VER
       _putenv_s("DMLC_RANK", rank.c_str());

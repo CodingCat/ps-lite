@@ -88,6 +88,11 @@ void Postoffice::RemoveCustomer(Customer* customer) {
   customers_.erase(id);
 }
 
+int Postoffice::NewLocalCustomerId() {
+  std::lock_guard<std::mutex> lk(customer_id_mu_);
+  return num_customers++;
+}
+
 
 Customer* Postoffice::GetCustomer(int id, int timeout) const {
   Customer* obj = nullptr;

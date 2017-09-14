@@ -47,6 +47,12 @@ class Postoffice {
    * \brief remove a customer by given it's id. threasafe
    */
   void RemoveCustomer(Customer* customer);
+
+  /**
+   * @return an ID of customer which is unique in this post office
+   */
+  int NewLocalCustomerId();
+
   /**
    * \brief get the customer by id, threadsafe
    * \param id the customer id
@@ -172,7 +178,8 @@ class Postoffice {
   int num_servers_, num_workers_;
   bool barrier_done_;
   int verbose_;
-  std::mutex barrier_mu_;
+  int num_customers;
+  std::mutex barrier_mu_, customer_id_mu_;
   std::condition_variable barrier_cond_;
   std::mutex heartbeat_mu_;
   std::unordered_map<int, time_t> heartbeats_;

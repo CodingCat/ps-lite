@@ -33,10 +33,9 @@ class Customer {
 
   /**
    * \brief constructor
-   * \param id the unique id, any received message with
    * \param recv_handle the functino for processing a received message
    */
-  Customer(int id, const RecvHandle& recv_handle);
+  Customer(const RecvHandle& recv_handle);
 
   /**
    * \brief desconstructor

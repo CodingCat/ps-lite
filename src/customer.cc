@@ -8,8 +8,9 @@ namespace ps {
 const int Node::kEmpty = std::numeric_limits<int>::max();
 const int Meta::kEmpty = std::numeric_limits<int>::max();
 
-Customer::Customer(int id, const Customer::RecvHandle& recv_handle)
-    : id_(id), recv_handle_(recv_handle) {
+Customer::Customer(const Customer::RecvHandle& recv_handle)
+    : recv_handle_(recv_handle) {
+  id_ = Postoffice::Get() -> NewLocalCustomerId();
   Postoffice::Get()->AddCustomer(this);
   recv_thread_ = std::unique_ptr<std::thread>(new std::thread(&Customer::Receiving, this));
 }
