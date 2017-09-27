@@ -33,10 +33,9 @@ class Customer {
 
   /**
    * \brief constructor
-   * \param id the unique id, any received message with
    * \param recv_handle the functino for processing a received message
    */
-  Customer(int id, const RecvHandle& recv_handle);
+  Customer(const RecvHandle& recv_handle);
 
   /**
    * \brief desconstructor
@@ -47,6 +46,8 @@ class Customer {
    * \brief return the unique id
    */
   int id() { return id_; }
+
+  void UpdateGlobalId(int globalRank) { global_id_ = globalRank; }
 
   /**
    * \brief get a timestamp for a new request. threadsafe
@@ -86,6 +87,7 @@ class Customer {
   void Receiving();
 
   int id_;
+  int global_id_;
 
   RecvHandle recv_handle_;
   ThreadsafeQueue<Message> recv_queue_;

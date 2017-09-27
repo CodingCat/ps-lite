@@ -142,7 +142,7 @@ class Van {
     int drop_rate_ = 0;
     std::atomic<int> timestamp_{0};
 
-    void ProcessAddNodeCommandAtScheduler(Message* msg, Meta* nodes, Meta* recovery_nodes);
+    void ProcessAddNodeCommandAtScheduler(Meta* nodes, Meta* recovery_nodes);
 
     void ProcessTerminateCommand();
 

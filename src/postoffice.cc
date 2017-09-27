@@ -77,25 +77,36 @@ void Postoffice::Finalize(const bool do_barrier) {
 void Postoffice::AddCustomer(Customer* customer) {
   std::lock_guard<std::mutex> lk(mu_);
   int id = CHECK_NOTNULL(customer)->id();
-  CHECK_EQ(customers_.count(id), (size_t)0) << "id " << id << " already exists";
-  customers_[id] = customer;
+  CHECK_EQ(customer_by_local_id.count(id), (size_t)0) << "id " << id << " already exists";
+  customer_by_local_id[id] = customer;
 }
 
 
 void Postoffice::RemoveCustomer(Customer* customer) {
   std::lock_guard<std::mutex> lk(mu_);
   int id = CHECK_NOTNULL(customer)->id();
-  customers_.erase(id);
+  customer_by_local_id.erase(id);
+}
+
+int Postoffice::NewLocalCustomerId() {
+  std::lock_guard<std::mutex> lk(customer_id_mu_);
+  return num_customers++;
 }
 
 
-Customer* Postoffice::GetCustomer(int id, int timeout) const {
+Customer* Postoffice::GetCustomer(int id, int timeout, bool use_global_id) const {
   Customer* obj = nullptr;
+  std::unordered_map<int, Customer*>* customer_map = nullptr;
+  if (use_global_id) {
+    customer_map = & customer_by_global_id;
+  } else {
+    customer_map = & customer_by_local_id;
+  }
   for (int i = 0; i < timeout*1000+1; ++i) {
     {
       std::lock_guard<std::mutex> lk(mu_);
-      const auto it = customers_.find(id);
-      if (it != customers_.end()) {
+      const auto it = customer_map -> find(id);
+      if (it != customer_map -> end()) {
         obj = it->second;
         break;
       }

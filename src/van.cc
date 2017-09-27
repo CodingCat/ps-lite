@@ -35,7 +35,7 @@ void Van::ProcessTerminateCommand() {
 }
 
 void Van::ProcessAddNodeCommandAtScheduler(
-        Message* msg, Meta* nodes, Meta* recovery_nodes) {
+        Meta* nodes, Meta* recovery_nodes) {
   recovery_nodes -> control.cmd = Control::ADD_NODE;
   time_t t = time(NULL);
   size_t num_nodes = Postoffice::Get()->num_servers() + Postoffice::Get()->num_workers();
@@ -62,8 +62,7 @@ void Van::ProcessAddNodeCommandAtScheduler(
     nodes -> control.cmd = Control::ADD_NODE;
     Message back;
     back.meta = *nodes;
-    for (int r : Postoffice::Get()->GetNodeIDs(
-            kWorkerGroup + kServerGroup)) {
+    for (int r : Postoffice::Get()->GetNodeIDs(kWorkerGroup + kServerGroup)) {
       back.meta.recver = r;
       back.meta.timestamp = timestamp_++;
       Send(back);
@@ -132,12 +131,14 @@ void Van::UpdateLocalID(Message* msg, std::unordered_set<int>* deadnodes_set,
     const auto& node = ctrl.node[i];
     if (my_node_.hostname == node.hostname && my_node_.port == node.port) {
       my_node_ = node;
+      my_node_.id = node.id;
       std::string rank = std::to_string(Postoffice::IDtoRank(node.id));
 #ifdef _MSC_VER
       _putenv_s("DMLC_RANK", rank.c_str());
 #else
       setenv("DMLC_RANK", rank.c_str(), true);
 #endif
+      Postoffice::Get() -> GetCustomer(node.id)->UpdateGlobalId(std::stoi(rank));
     }
   }
 }
@@ -192,7 +193,7 @@ void Van::ProcessDataMsg(Message* msg) {
   CHECK_NE(msg -> meta.customer_id, Meta::kEmpty);
   int id = msg -> meta.customer_id;
   auto* obj = Postoffice::Get()->GetCustomer(id, 5);
-  CHECK(obj) << "timeout (5 sec) to wait App " << id << " ready";
+  CHECK(obj) << "timeout (5 sec) to wait Customer " << id << " ready";
   obj->Accept(*msg);
 }
 
@@ -204,7 +205,7 @@ void Van::ProcessAddNodeCommand(Message* msg, Meta* nodes, Meta* recovery_nodes)
   UpdateLocalID(msg, &dead_set, nodes, recovery_nodes);
 
   if (is_scheduler_) {
-    ProcessAddNodeCommandAtScheduler(msg, nodes, recovery_nodes);
+    ProcessAddNodeCommandAtScheduler(nodes, recovery_nodes);
   } else {
     for (const auto& node : ctrl.node) {
       Connect(node);

@@ -47,13 +47,19 @@ class Postoffice {
    * \brief remove a customer by given it's id. threasafe
    */
   void RemoveCustomer(Customer* customer);
+
+  /**
+   * @return an ID of customer which is unique in this post office
+   */
+  int NewLocalCustomerId();
+
   /**
    * \brief get the customer by id, threadsafe
    * \param id the customer id
    * \param timeout timeout in sec
    * \return return nullptr if doesn't exist and timeout
    */
-  Customer* GetCustomer(int id, int timeout = 0) const;
+  Customer* GetCustomer(int id, int timeout = 0, bool use_global_id = false) const;
   /**
    * \brief get the id of a node (group), threadsafe
    *
@@ -165,14 +171,17 @@ class Postoffice {
   ~Postoffice() { delete van_; }
   Van* van_;
   mutable std::mutex mu_;
-  std::unordered_map<int, Customer*> customers_;
+  // a map from customer's local id to customer instance
+  std::unordered_map<int, Customer*> customer_by_local_id;
+  std::unordered_map<int, Customer*> customer_by_global_id;
   std::unordered_map<int, std::vector<int>> node_ids_;
   std::vector<Range> server_key_ranges_;
   bool is_worker_, is_server_, is_scheduler_;
   int num_servers_, num_workers_;
   bool barrier_done_;
   int verbose_;
-  std::mutex barrier_mu_;
+  int num_customers;
+  std::mutex barrier_mu_, customer_id_mu_;
   std::condition_variable barrier_cond_;
   std::mutex heartbeat_mu_;
   std::unordered_map<int, time_t> heartbeats_;
