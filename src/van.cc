@@ -193,7 +193,7 @@ void Van::ProcessDataMsg(Message* msg) {
   CHECK_NE(msg -> meta.customer_id, Meta::kEmpty);
   int id = msg -> meta.customer_id;
   auto* obj = Postoffice::Get()->GetCustomer(id, 5);
-  CHECK(obj) << "timeout (5 sec) to wait App " << id << " ready";
+  CHECK(obj) << "timeout (5 sec) to wait Customer " << id << " ready";
   obj->Accept(*msg);
 }
 

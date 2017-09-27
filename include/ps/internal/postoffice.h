@@ -59,7 +59,7 @@ class Postoffice {
    * \param timeout timeout in sec
    * \return return nullptr if doesn't exist and timeout
    */
-  Customer* GetCustomer(int id, int timeout = 0) const;
+  Customer* GetCustomer(int id, int timeout = 0, bool use_global_id = false) const;
   /**
    * \brief get the id of a node (group), threadsafe
    *

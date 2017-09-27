@@ -94,13 +94,19 @@ int Postoffice::NewLocalCustomerId() {
 }
 
 
-Customer* Postoffice::GetCustomer(int id, int timeout) const {
+Customer* Postoffice::GetCustomer(int id, int timeout, bool use_global_id) const {
   Customer* obj = nullptr;
+  std::unordered_map<int, Customer*>* customer_map = nullptr;
+  if (use_global_id) {
+    customer_map = & customer_by_global_id;
+  } else {
+    customer_map = & customer_by_local_id;
+  }
   for (int i = 0; i < timeout*1000+1; ++i) {
     {
       std::lock_guard<std::mutex> lk(mu_);
-      const auto it = customer_by_local_id.find(id);
-      if (it != customer_by_local_id.end()) {
+      const auto it = customer_map -> find(id);
+      if (it != customer_map -> end()) {
         obj = it->second;
         break;
       }
