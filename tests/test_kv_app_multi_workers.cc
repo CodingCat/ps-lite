@@ -46,6 +46,8 @@ void RunWorker(int customer_id) {
   }
   CHECK_LT(res / repeat, 1e-5);
   LL << "error: " << res / repeat;
+  // stop system
+  Finalize(customer_id, true);
 }
 
 int main(int argc, char *argv[]) {
@@ -59,7 +61,7 @@ int main(int argc, char *argv[]) {
   std::thread t0(RunWorker, 0);
   std::thread t1(RunWorker, 1);
 
-  // stop system
-  Finalize(0, true);
+  t0.join();
+  t1.join();
   return 0;
 }
