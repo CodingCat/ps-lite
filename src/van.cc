@@ -47,24 +47,37 @@ void Van::ProcessAddNodeCommandAtScheduler(
               });
     // assign node rank
     for (auto& node : nodes -> control.node) {
-      CHECK_EQ(node.id, Node::kEmpty);
-      int id = node.role == Node::SERVER ?
-               Postoffice::ServerRankToID(num_servers_) :
-               Postoffice::WorkerRankToID(num_workers_);
-      PS_VLOG(1) << "assign rank=" << id << " to node " << node.DebugString();
-      node.id = id;
-      Connect(node);
+      std::string node_host_ip = node.hostname + ":" + std::to_string(node.port);
+      if (connected_nodes.find(node_host_ip) == connected_nodes.end()) {
+        CHECK_EQ(node.id, Node::kEmpty);
+        int id = node.role == Node::SERVER ?
+                 Postoffice::ServerRankToID(num_servers_) :
+                 Postoffice::WorkerRankToID(num_workers_);
+        PS_VLOG(1) << "assign rank=" << id << " to node " << node.DebugString();
+        node.id = id;
+        Connect(node);
+        Postoffice::Get()->UpdateHeartbeat(node.id, t);
+        connected_nodes[node_host_ip] = id;
+      } else {
+        int id = node.role == Node::SERVER ?
+                 Postoffice::ServerRankToID(num_servers_) :
+                 Postoffice::WorkerRankToID(num_workers_);
+        shared_node_mapping[id] = connected_nodes[node_host_ip];
+        node.id = connected_nodes[node_host_ip];
+      }
       if (node.role == Node::SERVER) num_servers_++;
       if (node.role == Node::WORKER) num_workers_++;
-      Postoffice::Get()->UpdateHeartbeat(node.id, t);
     }
-    nodes -> control.node.push_back(my_node_);
-    nodes -> control.cmd = Control::ADD_NODE;
+    nodes->control.node.push_back(my_node_);
+    nodes->control.cmd = Control::ADD_NODE;
     Message back;
     back.meta = *nodes;
-    for (int r : Postoffice::Get()->GetNodeIDs(
-            kWorkerGroup + kServerGroup)) {
-      back.meta.recver = r;
+    for (int r : Postoffice::Get()->GetNodeIDs(kWorkerGroup + kServerGroup)) {
+      int recver_id = r;
+      if (shared_node_mapping.find(r) != shared_node_mapping.end()) {
+        recver_id = shared_node_mapping[r];
+      }
+      back.meta.recver = recver_id;
       back.meta.timestamp = timestamp_++;
       Send(back);
     }
@@ -79,8 +92,7 @@ void Van::ProcessAddNodeCommandAtScheduler(
     Connect(recovery_nodes -> control.node[0]);
     Postoffice::Get()->UpdateHeartbeat(recovery_nodes -> control.node[0].id, t);
     Message back;
-    for (int r : Postoffice::Get()->GetNodeIDs(
-            kWorkerGroup + kServerGroup)) {
+    for (int r : Postoffice::Get()->GetNodeIDs(kWorkerGroup + kServerGroup)) {
       if (r != recovery_nodes -> control.node[0].id
           && dead_set.find(r) != dead_set.end()) {
         // do not try to send anything to dead node
@@ -112,7 +124,7 @@ void Van::UpdateLocalID(Message* msg, std::unordered_set<int>* deadnodes_set,
       for (size_t i = 0; i < nodes -> control.node.size() - 1; ++i) {
         const auto& node = nodes -> control.node[i];
         if (deadnodes_set -> find(node.id) != deadnodes_set -> end() &&
-                node.role == ctrl.node[0].role) {
+            node.role == ctrl.node[0].role) {
           auto& recovery_node = ctrl.node[0];
           // assign previous node id
           recovery_node.id = node.id;
@@ -173,9 +185,15 @@ void Van::ProcessBarrierCommand(Message* msg) {
       barrier_count_[group] = 0;
       Message res;
       res.meta.request = false;
+      res.meta.app_id = msg->meta.app_id;
+      res.meta.customer_id = msg->meta.customer_id;
       res.meta.control.cmd = Control::BARRIER;
       for (int r : Postoffice::Get()->GetNodeIDs(group)) {
-        res.meta.recver = r;
+        int recver_id = r;
+        if (shared_node_mapping.find(r) != shared_node_mapping.end()) {
+          recver_id = shared_node_mapping[r];
+        }
+        res.meta.recver = recver_id;
         res.meta.timestamp = timestamp_++;
         CHECK_GT(Send(res), 0);
       }
@@ -189,10 +207,12 @@ void Van::ProcessDataMsg(Message* msg) {
   // data msg
   CHECK_NE(msg -> meta.sender, Meta::kEmpty);
   CHECK_NE(msg -> meta.recver, Meta::kEmpty);
-  CHECK_NE(msg -> meta.customer_id, Meta::kEmpty);
-  int id = msg -> meta.customer_id;
-  auto* obj = Postoffice::Get()->GetCustomer(id, 5);
-  CHECK(obj) << "timeout (5 sec) to wait App " << id << " ready";
+  CHECK_NE(msg -> meta.app_id, Meta::kEmpty);
+  int app_id = msg -> meta.app_id;
+  int customer_id = Postoffice::Get()->is_worker() ? msg->meta.customer_id : app_id;
+  auto* obj = Postoffice::Get()->GetCustomer(app_id, customer_id, 5);
+  CHECK(obj) << "timeout (5 sec) to wait App " << app_id << " customer " << customer_id \
+    << " ready ";
   obj->Accept(*msg);
 }
 
@@ -216,91 +236,105 @@ void Van::ProcessAddNodeCommand(Message* msg, Meta* nodes, Meta* recovery_nodes)
   }
 }
 
-void Van::Start() {
+void Van::Start(int customer_id) {
   // get scheduler info
-  scheduler_.hostname = std::string(CHECK_NOTNULL(Environment::Get()->find("DMLC_PS_ROOT_URI")));
-  scheduler_.port     = atoi(CHECK_NOTNULL(Environment::Get()->find("DMLC_PS_ROOT_PORT")));
-  scheduler_.role     = Node::SCHEDULER;
-  scheduler_.id       = kScheduler;
-  is_scheduler_       = Postoffice::Get()->is_scheduler();
+  start_mu_.lock();
+  if (init_stage == 0) {
+    scheduler_.hostname = std::string(CHECK_NOTNULL(Environment::Get()->find("DMLC_PS_ROOT_URI")));
+    scheduler_.port = atoi(CHECK_NOTNULL(Environment::Get()->find("DMLC_PS_ROOT_PORT")));
+    scheduler_.role = Node::SCHEDULER;
+    scheduler_.id = kScheduler;
+    is_scheduler_ = Postoffice::Get()->is_scheduler();
 
-  // get my node info
-  if (is_scheduler_) {
-    my_node_ = scheduler_;
-  } else {
-    auto role = is_scheduler_ ? Node::SCHEDULER :
-                (Postoffice::Get()->is_worker() ? Node::WORKER : Node::SERVER);
-    const char* nhost = Environment::Get()->find("DMLC_NODE_HOST");
-    std::string ip;
-    if (nhost) ip = std::string(nhost);
-    if (ip.empty()) {
-      const char*  itf = Environment::Get()->find("DMLC_INTERFACE");
-      std::string interface;
-      if (itf) interface = std::string(itf);
-      if (interface.size()) {
-        GetIP(interface, &ip);
-      } else {
-        GetAvailableInterfaceAndIP(&interface, &ip);
+    // get my node info
+    if (is_scheduler_) {
+      my_node_ = scheduler_;
+    } else {
+      auto role = is_scheduler_ ? Node::SCHEDULER :
+                  (Postoffice::Get()->is_worker() ? Node::WORKER : Node::SERVER);
+      const char *nhost = Environment::Get()->find("DMLC_NODE_HOST");
+      std::string ip;
+      if (nhost) ip = std::string(nhost);
+      if (ip.empty()) {
+        const char *itf = Environment::Get()->find("DMLC_INTERFACE");
+        std::string interface;
+        if (itf) interface = std::string(itf);
+        if (interface.size()) {
+          GetIP(interface, &ip);
+        } else {
+          GetAvailableInterfaceAndIP(&interface, &ip);
+        }
+        CHECK(!interface.empty()) << "failed to get the interface";
       }
-      CHECK(!interface.empty()) << "failed to get the interface";
+      int port = GetAvailablePort();
+      const char *pstr = Environment::Get()->find("PORT");
+      if (pstr) port = atoi(pstr);
+      CHECK(!ip.empty()) << "failed to get ip";
+      CHECK(port) << "failed to get a port";
+      my_node_.hostname = ip;
+      my_node_.role = role;
+      my_node_.port = port;
+      // cannot determine my id now, the scheduler will assign it later
+      // set it explicitly to make re-register within a same process possible
+      my_node_.id = Node::kEmpty;
+      my_node_.customer_id = customer_id;
     }
-    int port = GetAvailablePort();
-    const char* pstr = Environment::Get()->find("PORT");
-    if (pstr) port = atoi(pstr);
-    CHECK(!ip.empty()) << "failed to get ip";
-    CHECK(port) << "failed to get a port";
-    my_node_.hostname = ip;
-    my_node_.role     = role;
-    my_node_.port     = port;
-    // cannot determine my id now, the scheduler will assign it later
-    // set it explicitly to make re-register within a same process possible
-    my_node_.id = Node::kEmpty;
+
+    // bind.
+    my_node_.port = Bind(my_node_, is_scheduler_ ? 0 : 40);
+    PS_VLOG(1) << "Bind to " << my_node_.DebugString();
+    CHECK_NE(my_node_.port, -1) << "bind failed";
+
+    // connect to the scheduler
+    Connect(scheduler_);
+
+    // for debug use
+    if (Environment::Get()->find("PS_DROP_MSG")) {
+      drop_rate_ = atoi(Environment::Get()->find("PS_DROP_MSG"));
+    }
+    // start receiver
+    receiver_thread_ = std::unique_ptr<std::thread>(
+            new std::thread(&Van::Receiving, this));
+    init_stage++;
   }
-
-  // bind.
-  my_node_.port = Bind(my_node_, is_scheduler_ ? 0 : 40);
-  PS_VLOG(1) << "Bind to " << my_node_.DebugString();
-  CHECK_NE(my_node_.port, -1) << "bind failed";
-
-  // connect to the scheduler
-  Connect(scheduler_);
-
-  // for debug use
-  if (Environment::Get()->find("PS_DROP_MSG")) {
-    drop_rate_ = atoi(Environment::Get()->find("PS_DROP_MSG"));
-  }
-  // start receiver
-  receiver_thread_ = std::unique_ptr<std::thread>(
-      new std::thread(&Van::Receiving, this));
+  start_mu_.unlock();
 
   if (!is_scheduler_) {
     // let the scheduler know myself
     Message msg;
+    Node customer_specific_node = my_node_;
+    customer_specific_node.customer_id = customer_id;
     msg.meta.recver = kScheduler;
     msg.meta.control.cmd = Control::ADD_NODE;
-    msg.meta.control.node.push_back(my_node_);
+    msg.meta.control.node.push_back(customer_specific_node);
     msg.meta.timestamp = timestamp_++;
+    // msg.meta.customer_id = my_node_.customer_id;
     Send(msg);
   }
   // wait until ready
   while (!ready_) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
-  // resender
-  if (Environment::Get()->find("PS_RESEND") && atoi(Environment::Get()->find("PS_RESEND")) != 0) {
-    int timeout = 1000;
-    if (Environment::Get()->find("PS_RESEND_TIMEOUT")) {
-      timeout = atoi(Environment::Get()->find("PS_RESEND_TIMEOUT"));
+  start_mu_.lock();
+  if (init_stage == 1) {
+    // resender
+    if (Environment::Get()->find("PS_RESEND") && atoi(Environment::Get()->find("PS_RESEND")) != 0) {
+      int timeout = 1000;
+      if (Environment::Get()->find("PS_RESEND_TIMEOUT")) {
+        timeout = atoi(Environment::Get()->find("PS_RESEND_TIMEOUT"));
+      }
+      resender_ = new Resender(timeout, 10, this);
     }
-    resender_ = new Resender(timeout, 10, this);
-  }
 
-  if (!is_scheduler_) {
-    // start heartbeat thread
-    heartbeat_thread_ = std::unique_ptr<std::thread>(
-      new std::thread(&Van::Heartbeat, this));
+    if (!is_scheduler_) {
+      // start heartbeat thread
+      heartbeat_thread_ = std::unique_ptr<std::thread>(
+              new std::thread(&Van::Heartbeat, this));
+    }
+    init_stage++;
   }
+  start_mu_.unlock();
 }
 
 void Van::Stop() {
@@ -308,6 +342,7 @@ void Van::Stop() {
   Message exit;
   exit.meta.control.cmd = Control::TERMINATE;
   exit.meta.recver = my_node_.id;
+  exit.meta.customer_id = my_node_.customer_id;
   SendMsg(exit);
   receiver_thread_->join();
   if (!is_scheduler_) heartbeat_thread_->join();
@@ -373,12 +408,13 @@ void Van::PackMeta(const Meta& meta, char** meta_buf, int* buf_size) {
   // convert into protobuf
   PBMeta pb;
   pb.set_head(meta.head);
-  if (meta.customer_id != Meta::kEmpty) pb.set_customer_id(meta.customer_id);
+  if (meta.app_id != Meta::kEmpty) pb.set_app_id(meta.app_id);
   if (meta.timestamp != Meta::kEmpty) pb.set_timestamp(meta.timestamp);
   if (meta.body.size()) pb.set_body(meta.body);
   pb.set_push(meta.push);
   pb.set_request(meta.request);
   pb.set_simple_app(meta.simple_app);
+  pb.set_customer_id(meta.customer_id);
   for (auto d : meta.data_type) pb.add_data_type(d);
   if (!meta.control.empty()) {
     auto ctrl = pb.mutable_control();
@@ -395,6 +431,7 @@ void Van::PackMeta(const Meta& meta, char** meta_buf, int* buf_size) {
       p->set_port(n.port);
       p->set_hostname(n.hostname);
       p->set_is_recovery(n.is_recovery);
+      p->set_customer_id(n.customer_id);
     }
   }
 
@@ -402,23 +439,24 @@ void Van::PackMeta(const Meta& meta, char** meta_buf, int* buf_size) {
   *buf_size = pb.ByteSize();
   *meta_buf = new char[*buf_size+1];
   CHECK(pb.SerializeToArray(*meta_buf, *buf_size))
-      << "failed to serialize protbuf";
+    << "failed to serialize protbuf";
 }
 
 void Van::UnpackMeta(const char* meta_buf, int buf_size, Meta* meta) {
   // to protobuf
   PBMeta pb;
   CHECK(pb.ParseFromArray(meta_buf, buf_size))
-      << "failed to parse string into protobuf";
+    << "failed to parse string into protobuf";
 
   // to meta
   meta->head = pb.head();
-  meta->customer_id = pb.has_customer_id() ? pb.customer_id() : Meta::kEmpty;
+  meta->app_id = pb.has_app_id() ? pb.app_id() : Meta::kEmpty;
   meta->timestamp = pb.has_timestamp() ? pb.timestamp() : Meta::kEmpty;
   meta->request = pb.request();
   meta->push = pb.push();
   meta->simple_app = pb.simple_app();
   meta->body = pb.body();
+  meta->customer_id = pb.customer_id();
   meta->data_type.resize(pb.data_type_size());
   for (int i = 0; i < pb.data_type_size(); ++i) {
     meta->data_type[i] = static_cast<DataType>(pb.data_type(i));
@@ -436,6 +474,7 @@ void Van::UnpackMeta(const char* meta_buf, int buf_size, Meta* meta) {
       n.hostname = p.hostname();
       n.id = p.has_id() ? p.id() : Node::kEmpty;
       n.is_recovery = p.is_recovery();
+      n.customer_id = p.customer_id();
       meta->control.node.push_back(n);
     }
   } else {
