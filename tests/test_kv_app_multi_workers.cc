@@ -10,6 +10,7 @@ void StartServer() {
 
 void RunWorker(int customer_id) {
   if (!IsWorker()) return;
+  StartAsync(customer_id);
   KVWorker<float> kv(0, customer_id);
 
   // init
@@ -20,7 +21,7 @@ void RunWorker(int customer_id) {
   int rank = MyRank();
   srand(rank + 7);
   for (int i = 0; i < num; ++i) {
-    keys[i] = kMaxKey / num * i + rank;
+    keys[i] = kMaxKey / num * i + customer_id;
     vals[i] = (rand() % 1000);
   }
 
@@ -51,13 +52,13 @@ int main(int argc, char *argv[]) {
   // setup server nodes
   StartServer();
   // start system
-  Start(0);
+  if (!IsWorker()) {
+    Start(0);
+  }
   // run worker nodes
   std::thread t0(RunWorker, 0);
   std::thread t1(RunWorker, 1);
 
-  t0.join();
-  t1.join();
   // stop system
   Finalize(0, true);
   return 0;
