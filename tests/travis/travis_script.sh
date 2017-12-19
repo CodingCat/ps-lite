@@ -12,5 +12,6 @@ fi
 if [ ${TASK} == "test" ]; then
     make test DEPS_PATH=${CACHE_PREFIX} CXX=${CXX} || exit -1
     cd tests
-    find test_* -type f -executable -exec ./repeat.sh 4 ./local.sh 2 2 ./{} \;
+    find -not *multi_workers -type f -executable -exec ./repeat.sh 4 ./local.sh 2 2 ./{} \;
+    find test_* -type f -executable -exec ./repeat.sh 4 ./local.sh 2 0 ./{} \;
 fi

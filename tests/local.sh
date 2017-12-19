@@ -29,9 +29,14 @@ done
 
 # start workers
 export DMLC_ROLE='worker'
-for ((i=0; i<${DMLC_NUM_WORKER}; ++i)); do
+if (( ${DMLC_NUM_WORKER} > 0 )); then
+    for ((i=0; i<${DMLC_NUM_WORKER}; ++i)); do
+        export HEAPPROFILE=./W${i}
+        ${bin} ${arg} &
+    done
+else
     export HEAPPROFILE=./W${i}
     ${bin} ${arg} &
-done
+fi
 
 wait
